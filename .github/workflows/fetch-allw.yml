@@ -1,0 +1,61 @@
+name: Fetch ALLW XLSX (daily)
+
+on:
+  schedule:
+    # Run Mon–Fri at 15:15 UTC ≈ 17:15 Europe/Zurich (summer). Adjust if you like.
+    - cron: "15 15 * * 1-5"
+  workflow_dispatch: {}   # allow manual run
+
+permissions:
+  contents: write   # needed to commit updates
+
+concurrency:
+  group: allw-daily
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Fetch XLSX with retries
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="https://www.ssga.com/us/en/intermediary/library-content/products/fund-data/etfs/us/holdings-daily-us-en-allw.xlsx"
+          TS_UTC=$(date -u +%F)
+          mkdir -p data/allw latest
+          TMP=$(mktemp)
+
+          # Robust download: follow redirects, retry on 5xx & conn refused
+          curl -fL --retry 6 --retry-delay 10 --retry-connrefused \
+               -A "curl/7 GitHubAction stahlan/allw-holdings-mirror" \
+               "$URL" -o "$TMP"
+
+          # Basic sanity: require file size > 50 KB (SSGA file is ~hundreds of KB)
+          BYTES=$(wc -c < "$TMP" | tr -d ' ')
+          if [ "$BYTES" -lt 50000 ]; then
+            echo "Downloaded file looks too small ($BYTES bytes) — aborting."
+            exit 1
+          fi
+
+          OUT="data/allw/${TS_UTC}.xlsx"
+          cp "$TMP" "$OUT"
+          cp "$TMP" latest/allw-latest.xlsx
+          sha256sum "$OUT" | awk '{print $1}' > latest/allw-latest.sha256
+
+      - name: Commit changes (only if new/changed)
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -n "$(git status --porcelain)" ]; then
+            git add -A
+            git commit -m "Update ALLW XLSX $(date -u +%F)"
+            git push
+          else
+            echo "No changes to commit."
+          fi
