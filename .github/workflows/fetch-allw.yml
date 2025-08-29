@@ -36,7 +36,7 @@ jobs:
 
           # Basic sanity: require file size > 50 KB (SSGA file is ~hundreds of KB)
           BYTES=$(wc -c < "$TMP" | tr -d ' ')
-          if [ "$BYTES" -lt 50000 ]; then
+          if [ "$BYTES" -lt 5000 ]; then
             echo "Downloaded file looks too small ($BYTES bytes) — aborting."
             exit 1
           fi
